@@ -26,8 +26,7 @@ jobs:
           pip install -U "huggingface_hub[cli]"
           hf download bartowski/gemma-2-2b-it-GGUF \
               --include "gemma-2-2b-it-Q4_K_M.gguf" \
-              --local-dir models \
-              --local-dir-use-symlinks False
+              --local-dir models
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
