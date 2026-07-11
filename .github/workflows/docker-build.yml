@@ -47,8 +47,19 @@ jobs:
 
       - name: End-to-End Integration Test
         run: |
-          # Create an empty output directory
+          # Create an empty output directory and input directory
           mkdir -p test_output
+          mkdir -p input
+          
+          # Create a mock tasks.json to simulate the grading harness
+          cat <<EOF > input/tasks.json
+          [
+            {
+              "task_id": "test_1",
+              "prompt": "What is 2+2?"
+            }
+          ]
+          EOF
           
           # Run the container exactly as the grading harness does
           docker run --rm \
