@@ -26,7 +26,8 @@ jobs:
           pip install -U "huggingface_hub[cli]"
           hf download bartowski/gemma-2-2b-it-GGUF \
               --include "gemma-2-2b-it-Q4_K_M.gguf" \
-              --local-dir models
+              --local-dir models \
+              --local-dir-use-symlinks False
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -44,3 +45,18 @@ jobs:
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/amd-track1-agent:latest
           cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/amd-track1-agent:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/amd-track1-agent:buildcache,mode=max
+
+      - name: End-to-End Integration Test
+        run: |
+          # Create an empty output directory
+          mkdir -p test_output
+          
+          # Run the container exactly as the grading harness does
+          docker run --rm \
+            -v ${{ github.workspace }}/input:/input \
+            -v ${{ github.workspace }}/test_output:/output \
+            ${{ secrets.DOCKERHUB_USERNAME }}/amd-track1-agent:latest
+            
+          # Verify results.json exists and contains actual output
+          cat test_output/results.json
+          grep -q '"answer":' test_output/results.json || exit 1

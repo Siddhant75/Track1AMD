@@ -352,6 +352,12 @@ def main() -> None:
         f"Panic: {len(pending_remote)}. Exiting.",
         flush=True,
     )
+
+    # If 100% of answers are "Unable to process.", crash loudly
+    if results and all(r.answer == "Unable to process." for r in results):
+        print("[FATAL] 100% of tasks failed. Exiting with code 1.", flush=True)
+        sys.exit(1)
+
     sys.exit(0)
 
 
