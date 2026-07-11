@@ -27,7 +27,7 @@ RUN pip install --no-cache-dir --extra-index-url https://abetlen.github.io/llama
 
 # 4. Copy all Python code
 COPY schemas.py classifier.py prompts.py local_engine.py critic.py \
-     router.py remote_client.py main.py ./
+     router.py remote_client.py validator.py main.py ./
 
 # 5. Copy the pre-downloaded quantized model weights (downloaded in CI/CD)
 COPY models/ /app/models/
