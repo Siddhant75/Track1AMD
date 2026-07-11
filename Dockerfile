@@ -23,7 +23,7 @@ COPY pyproject.toml .
 # We do NOT compile from source here to prevent the GitHub Actions runner
 # (which has AVX512) from optimizing the binary for its own CPU, which 
 # causes "Illegal instruction (core dumped)" crashes on the grading server.
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu .
 
 # 4. Copy all Python code
 COPY schemas.py classifier.py prompts.py local_engine.py critic.py \
