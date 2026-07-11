@@ -52,21 +52,36 @@ jobs:
           mkdir -p input
           
           # Create a mock tasks.json to simulate the grading harness
+          # Include a mix of easy, coding, and hard reasoning tasks
           cat <<EOF > input/tasks.json
           [
             {
-              "task_id": "test_1",
-              "prompt": "What is 2+2?"
+              "task_id": "test_easy",
+              "prompt": "What is the capital of France?"
+            },
+            {
+              "task_id": "test_code",
+              "prompt": "Write a Python function to solve the travelling salesperson problem using dynamic programming with bitmasking."
+            },
+            {
+              "task_id": "test_reasoning",
+              "prompt": "Sally has 3 brothers. Each brother has 2 sisters. How many sisters does Sally have?"
             }
           ]
           EOF
           
           # Run the container exactly as the grading harness does
+          # Injecting FIREWORKS_API_KEY from secrets and ALLOWED_MODELS
           docker run --rm \
             -v ${{ github.workspace }}/input:/input \
             -v ${{ github.workspace }}/test_output:/output \
+            -e FIREWORKS_API_KEY=${{ secrets.FIREWORKS_API_KEY }} \
+            -e FIREWORKS_BASE_URL=https://api.fireworks.ai/inference/v1 \
+            -e ALLOWED_MODELS="accounts/fireworks/models/qwen2-72b-instruct,accounts/fireworks/models/mixtral-8x22b-instruct,accounts/fireworks/models/llama-v3-70b-instruct" \
             ${{ secrets.DOCKERHUB_USERNAME }}/amd-track1-agent:latest
             
           # Verify results.json exists and contains actual output
-          cat test_output/results.json
+          echo "==== RESULTS ===="
+          sudo apt-get install -y jq
+          jq . test_output/results.json || cat test_output/results.json
           grep -q '"answer":' test_output/results.json || exit 1
