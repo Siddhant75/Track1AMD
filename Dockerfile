@@ -37,6 +37,7 @@ RUN mkdir -p /output
 
 # 7. Environment configuration
 ENV LOCAL_MODEL_PATH=/app/models/gemma-2-2b-it-Q4_K_M.gguf
+ENV LOCAL_REASONING_MODEL_PATH=/app/models/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf
 ENV PYTHONUNBUFFERED=1
 
 # 8. Entrypoint

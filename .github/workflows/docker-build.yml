@@ -27,6 +27,9 @@ jobs:
           hf download bartowski/gemma-2-2b-it-GGUF \
               --include "gemma-2-2b-it-Q4_K_M.gguf" \
               --local-dir models
+          hf download unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF \
+              --include "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf" \
+              --local-dir models
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -55,18 +58,25 @@ jobs:
           # Include a mix of easy, coding, and hard reasoning tasks
           cat <<EOF > input/tasks.json
           [
-            {
-              "task_id": "test_easy",
-              "prompt": "What is the capital of France?"
-            },
-            {
-              "task_id": "test_code",
-              "prompt": "Write a Python function to solve the travelling salesperson problem using dynamic programming with bitmasking."
-            },
-            {
-              "task_id": "test_reasoning",
-              "prompt": "Sally has 3 brothers. Each brother has 2 sisters. How many sisters does Sally have?"
-            }
+            {"task_id": "t01", "prompt": "Summarize the history of AI in exactly two sentences."},
+            {"task_id": "t02", "prompt": "What is the capital of France? Answer in one sentence."},
+            {"task_id": "t03", "prompt": "List the three laws of robotics as exactly three bullet points."},
+            {"task_id": "t04", "prompt": "Solve 5x + 3 = 18 step by step and provide the final answer under 15 words."},
+            {"task_id": "t05", "prompt": "Explain quantum computing in under 15 words."},
+            {"task_id": "t06", "prompt": "Who wrote Hamlet? Answer must be exactly one sentence."},
+            {"task_id": "t07", "prompt": "Write a python function for fibonacci. Do not use more than 15 words outside of the code block."},
+            {"task_id": "t08", "prompt": "Analyze the sentiment of this text: 'I am extremely happy today!' Output exactly one word."},
+            {"task_id": "t09", "prompt": "Name five planets in our solar system as exactly five bullet points."},
+            {"task_id": "t10", "prompt": "Explain the theory of relativity. Maximum 50 words."},
+            {"task_id": "t11", "prompt": "What is 12 * 12? Answer in exactly one sentence."},
+            {"task_id": "t12", "prompt": "Describe a black hole. At most 20 words."},
+            {"task_id": "t13", "prompt": "Write a poem about the sea in exactly four sentences."},
+            {"task_id": "t14", "prompt": "Who is the CEO of Tesla? Answer must be one sentence."},
+            {"task_id": "t15", "prompt": "Provide a recipe for pancakes in exactly five bullet points."},
+            {"task_id": "t16", "prompt": "Solve for y: 2y - 4 = 10 step by step."},
+            {"task_id": "t17", "prompt": "What is photosynthesis? No longer than 20 words."},
+            {"task_id": "t18", "prompt": "Extract the names from this text: 'Alice and Bob went to the park'. Exactly two bullet points."},
+            {"task_id": "t19", "prompt": "Summarize the plot of the Matrix in exactly three sentences."}
           ]
           EOF
           

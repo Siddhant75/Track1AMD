@@ -37,8 +37,10 @@ from router import (
     get_task_type,
     should_escalate,
     build_verification_prompt,
+    select_local_model,
 )
 from schemas import TaskInput, TaskOutput, read_tasks, write_results
+from validator import validate_and_correct
 
 # ---------------------------------------------------------------------------
 # Timing constants
@@ -176,11 +178,16 @@ def main() -> None:
 
         try:
             # --- LOCAL INFERENCE with confidence ---
+            model_type = select_local_model(task.prompt)
             answer, confidence = engine.generate_with_confidence(
                 messages,
+                model_type=model_type,
                 max_tokens=max_tokens,
                 temperature=temperature,
             )
+
+            # --- VALIDATOR (Auto-correction) ---
+            validator_passed, answer = validate_and_correct(task.prompt, answer)
 
             # --- CRITIC VALIDATION ---
             is_valid, reason = validate_output(category, task.prompt, answer)
@@ -194,14 +201,16 @@ def main() -> None:
                 # Retry with slightly higher temperature
                 answer, confidence = engine.generate_with_confidence(
                     messages,
+                    model_type=model_type,
                     max_tokens=max_tokens,
                     temperature=0.3,
                 )
+                validator_passed, answer = validate_and_correct(task.prompt, answer)
                 is_valid, reason = validate_output(category, task.prompt, answer)
 
             # --- SMART ESCALATION DECISION ---
             should_esc, esc_reason = should_escalate(
-                category, task.prompt, answer, confidence, is_valid,
+                category, task.prompt, answer, confidence, is_valid, validator_passed
             )
 
             if should_esc and tier != RoutingTier.LOCAL_ONLY:

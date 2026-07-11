@@ -1,11 +1,11 @@
 """
-Local inference engine wrapping llama-cpp-python.
+Local inference engine wrapping llama-cpp-python with Multi-Agent Memory Swapping.
 
 Configured for the grading sandbox constraints:
   - CPU-only (n_gpu_layers=0)
   - 2 threads (matches 2 vCPU)
   - 2048 default context window
-  - Lazy model loading (passes 60s boot SLA)
+  - Lazy model loading & Safe Memory Swapping
   - Logprob-based confidence scoring for smart routing
 """
 
@@ -13,17 +13,23 @@ from __future__ import annotations
 
 import os
 import math
-from typing import Dict, List, Optional, Tuple
+import gc
+from typing import Dict, List, Optional, Tuple, Literal
 
 from llama_cpp import Llama
 
-# Default path inside the Docker container
+# Default paths inside the Docker container
 MODEL_PATH = os.environ.get(
     "LOCAL_MODEL_PATH",
     "/app/models/gemma-2-2b-it-Q4_K_M.gguf",
 )
 
-# Inference defaults tuned for accuracy on a 2B model
+REASONING_MODEL_PATH = os.environ.get(
+    "LOCAL_REASONING_MODEL_PATH",
+    "/app/models/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+)
+
+# Inference defaults tuned for accuracy
 _DEFAULT_MAX_TOKENS = 512
 _DEFAULT_TEMPERATURE = 0.1  # Low temperature for deterministic answers
 _DEFAULT_TOP_P = 0.9
@@ -34,28 +40,44 @@ CONFIDENCE_THRESHOLD = -1.5  # Average logprob; tuned empirically
 
 
 class LocalEngine:
-    """Lazy-loading wrapper around llama-cpp-python for CPU-only inference."""
+    """Lazy-loading wrapper around llama-cpp-python with safe memory swapping."""
 
     def __init__(
         self,
-        model_path: str = MODEL_PATH,
+        gemma_path: str = MODEL_PATH,
+        deepseek_path: str = REASONING_MODEL_PATH,
         n_ctx: int = 2048,
         n_threads: int = 2,
         n_batch: int = 512,
     ):
-        self._model_path = model_path
+        self._gemma_path = gemma_path
+        self._deepseek_path = deepseek_path
         self._n_ctx = n_ctx
         self._n_threads = n_threads
         self._n_batch = n_batch
+        
         self._model: Optional[Llama] = None
+        self._current_model_type: Optional[Literal["gemma", "deepseek"]] = None
 
-    def _load_model(self) -> None:
-        """Load model weights into RAM on first inference call (lazy loading)."""
-        if self._model is not None:
+    def _load_model(self, model_type: Literal["gemma", "deepseek"]) -> None:
+        """Load model weights into RAM, safely unloading the other if necessary."""
+        if self._current_model_type == model_type and self._model is not None:
             return
 
+        # Safe Memory Swapping: Unload current model and force garbage collection
+        if self._model is not None:
+            del self._model
+            self._model = None
+            gc.collect()
+
+        model_path = self._gemma_path if model_type == "gemma" else self._deepseek_path
+
+        # If the requested model doesn't exist (e.g. download failed), fallback to the other
+        if not os.path.exists(model_path):
+            model_path = self._gemma_path if model_type == "deepseek" else self._deepseek_path
+            
         self._model = Llama(
-            model_path=self._model_path,
+            model_path=model_path,
             n_gpu_layers=0,          # CPU only — no GPU in grading sandbox
             n_ctx=self._n_ctx,       # Context window
             n_threads=self._n_threads,  # Match 2 vCPU ceiling
@@ -63,19 +85,22 @@ class LocalEngine:
             logits_all=True,         # Must be True for logprobs in llama-cpp-python
             verbose=False,           # Suppress llama.cpp logs
         )
+        self._current_model_type = model_type
 
     def generate(
         self,
         messages: List[Dict[str, str]],
+        model_type: Literal["gemma", "deepseek"] = "gemma",
         max_tokens: int = _DEFAULT_MAX_TOKENS,
         temperature: float = _DEFAULT_TEMPERATURE,
         top_p: float = _DEFAULT_TOP_P,
         repeat_penalty: float = _DEFAULT_REPEAT_PENALTY,
     ) -> str:
-        """Generate a response from the local Gemma model.
+        """Generate a response from the specified local model.
 
         Args:
             messages: Chat-completion format messages list.
+            model_type: 'gemma' or 'deepseek'.
             max_tokens: Maximum tokens to generate.
             temperature: Sampling temperature (lower = more deterministic).
             top_p: Nucleus sampling threshold.
@@ -84,7 +109,7 @@ class LocalEngine:
         Returns:
             The model's response text, stripped of whitespace.
         """
-        self._load_model()
+        self._load_model(model_type)
         assert self._model is not None
 
         response = self._model.create_chat_completion(
@@ -104,6 +129,7 @@ class LocalEngine:
     def generate_with_confidence(
         self,
         messages: List[Dict[str, str]],
+        model_type: Literal["gemma", "deepseek"] = "gemma",
         max_tokens: int = _DEFAULT_MAX_TOKENS,
         temperature: float = _DEFAULT_TEMPERATURE,
         top_p: float = _DEFAULT_TOP_P,
@@ -117,6 +143,7 @@ class LocalEngine:
 
         Args:
             messages: Chat-completion format messages list.
+            model_type: 'gemma' or 'deepseek'.
             max_tokens: Maximum tokens to generate.
             temperature: Sampling temperature.
             top_p: Nucleus sampling threshold.
@@ -125,7 +152,7 @@ class LocalEngine:
         Returns:
             Tuple of (response_text, average_logprob).
         """
-        self._load_model()
+        self._load_model(model_type)
         assert self._model is not None
 
         response = self._model.create_chat_completion(
@@ -182,3 +209,4 @@ def _extract_avg_logprob(response: dict) -> float:
 
     except (KeyError, IndexError, TypeError):
         return -10.0
+

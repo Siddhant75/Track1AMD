@@ -150,13 +150,16 @@ class RemoteClient:
             A list of {"task_id": ..., "answer": ...} dicts.
         """
 
+        sem = asyncio.Semaphore(5)
+
         async def _process_one(task: Dict[str, Any]) -> Dict[str, str]:
-            answer = await self.generate(
-                task["messages"],
-                max_tokens=task.get("max_tokens", 512),
-                task_type=task.get("task_type", "general"),
-            )
-            return {"task_id": task["task_id"], "answer": answer or "Unable to process."}
+            async with sem:
+                answer = await self.generate(
+                    task["messages"],
+                    max_tokens=task.get("max_tokens", 512),
+                    task_type=task.get("task_type", "general"),
+                )
+                return {"task_id": task["task_id"], "answer": answer or "Unable to process."}
 
         results = await asyncio.gather(
             *[_process_one(t) for t in tasks],

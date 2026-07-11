@@ -6,7 +6,7 @@ to the remote Fireworks API (minimal tokens).  The routing decision is
 based on three signals:
 
   1. Category confidence — some categories are inherently safe for local.
-  2. Prompt complexity — length, multi-step indicators, domain difficulty.
+  2. Prompt complexity and constraints — negative constraints force DeepSeek.
   3. Local model confidence — logprob score from the first local attempt.
 
 The goal: clear the 80%+ accuracy gate while minimizing remote token usage.
@@ -15,7 +15,7 @@ The goal: clear the 80%+ accuracy gate while minimizing remote token usage.
 from __future__ import annotations
 
 import re
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Literal
 
 from classifier import TaskCategory, ComplexityTier
 
@@ -36,8 +36,8 @@ class RoutingTier:
 # ---------------------------------------------------------------------------
 
 _CATEGORY_ROUTING: Dict[TaskCategory, str] = {
-    TaskCategory.SENTIMENT: RoutingTier.LOCAL_ONLY,
-    TaskCategory.NER: RoutingTier.LOCAL_ONLY,
+    TaskCategory.SENTIMENT: RoutingTier.LOCAL_FIRST, # Changed to LOCAL_FIRST for strict constraints
+    TaskCategory.NER: RoutingTier.LOCAL_FIRST,
     TaskCategory.FACTUAL: RoutingTier.LOCAL_FIRST,
     TaskCategory.SUMMARIZATION: RoutingTier.LOCAL_FIRST,
     TaskCategory.MATH: RoutingTier.LOCAL_FIRST,
@@ -52,14 +52,14 @@ _CATEGORY_ROUTING: Dict[TaskCategory, str] = {
 # ---------------------------------------------------------------------------
 
 _CONFIDENCE_THRESHOLDS: Dict[TaskCategory, float] = {
-    TaskCategory.SENTIMENT: -3.0,      # Very lenient — almost always local
-    TaskCategory.NER: -3.0,
-    TaskCategory.FACTUAL: -1.8,
-    TaskCategory.SUMMARIZATION: -2.0,
-    TaskCategory.MATH: -1.2,           # Strict — math errors are costly
-    TaskCategory.LOGIC: -1.2,
-    TaskCategory.DEBUGGING: -1.3,
-    TaskCategory.CODE_GEN: -1.3,
+    TaskCategory.SENTIMENT: -2.0,
+    TaskCategory.NER: -2.0,
+    TaskCategory.FACTUAL: -1.5,
+    TaskCategory.SUMMARIZATION: -1.5,
+    TaskCategory.MATH: -1.0,           # Strict — math errors are costly
+    TaskCategory.LOGIC: -1.0,
+    TaskCategory.DEBUGGING: -1.0,
+    TaskCategory.CODE_GEN: -1.0,
 }
 
 # ---------------------------------------------------------------------------
@@ -108,6 +108,35 @@ _COMPLEXITY_INDICATORS = [
     r"\b(?:optimize|refactor)\b.*\b(?:code|algorithm|function)\b",
 ]
 
+_CONSTRAINT_INDICATORS = [
+    r"\bexactly\b.*\b(?:sentences?|words?|bullets?|points?|paragraphs?)\b",
+    r"\b(?:no|not)\s+(?:more|longer)\s+than\b",
+    r"\bunder\b.*\bwords?\b",
+    r"\bone-sentence\b",
+    r"\bat\s+most\b",
+    r"\bmust\s+be\b",
+    r"\bmaximum\b",
+    r"\bminimum\b",
+]
+
+
+def has_constraints(prompt: str) -> bool:
+    """Check if the prompt contains strict formatting constraints."""
+    prompt_lower = prompt.lower()
+    for pattern in _CONSTRAINT_INDICATORS:
+        if re.search(pattern, prompt_lower):
+            return True
+    return False
+
+def select_local_model(prompt: str) -> Literal["gemma", "deepseek"]:
+    """Select the best local model for the task.
+    
+    DeepSeek handles constraints (via <think> loop).
+    Gemma handles everything else (faster, better factual knowledge).
+    """
+    if has_constraints(prompt):
+        return "deepseek"
+    return "gemma"
 
 def get_routing_tier(category: TaskCategory) -> str:
     """Get the default routing tier for a category."""
@@ -150,6 +179,11 @@ def assess_prompt_complexity(prompt: str) -> float:
     for pattern in _COMPLEXITY_INDICATORS:
         if re.search(pattern, prompt_lower):
             score += 0.15
+            
+    # Constraint indicators severely bump complexity
+    for pattern in _CONSTRAINT_INDICATORS:
+        if re.search(pattern, prompt_lower):
+            score += 0.3
 
     # Multiple question marks = multiple sub-questions
     question_count = prompt.count("?")
@@ -172,6 +206,7 @@ def should_escalate(
     local_answer: str,
     confidence: float,
     critic_passed: bool,
+    validator_passed: bool = True,
 ) -> Tuple[bool, str]:
     """Decide whether to escalate a task to the remote API.
 
@@ -181,15 +216,16 @@ def should_escalate(
         local_answer: The local model's generated answer.
         confidence: The average logprob from the local model.
         critic_passed: Whether the rule-based critic validated the output.
+        validator_passed: Whether the Python constraint validator passed.
 
     Returns:
         Tuple of (should_escalate: bool, reason: str).
     """
     tier = get_routing_tier(category)
 
-    # Tier 1: LOCAL_ONLY — never escalate
-    if tier == RoutingTier.LOCAL_ONLY:
-        return False, "local_only_category"
+    # If python validator forcefully rejected the output, ALWAYS escalate
+    if not validator_passed:
+        return True, "validator_rejected (failed strict constraints)"
 
     # If critic rejected the output, strongly consider escalation
     if not critic_passed:
@@ -198,10 +234,11 @@ def should_escalate(
     # Check confidence against category-specific threshold
     threshold = get_confidence_threshold(category)
     if confidence < threshold:
-        # Also factor in prompt complexity
-        complexity = assess_prompt_complexity(prompt)
-        if complexity > 0.3 or confidence < (threshold - 0.5):
-            return True, f"low_confidence ({confidence:.2f} < {threshold}, complexity={complexity:.2f})"
+        return True, f"low_confidence ({confidence:.2f} < {threshold})"
+        
+    complexity = assess_prompt_complexity(prompt)
+    if complexity > 0.4 and confidence < (threshold + 0.5):
+        return True, f"high_complexity_moderate_confidence (c={complexity:.2f}, conf={confidence:.2f})"
 
     # Check for suspiciously short answers on complex tasks
     if category in (TaskCategory.MATH, TaskCategory.LOGIC, TaskCategory.CODE_GEN, TaskCategory.DEBUGGING):

@@ -13,20 +13,6 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-# ---------------------------------------------------------------------------
-# System prompts – aggressively compressed, no boilerplate
-# ---------------------------------------------------------------------------
-
-SYSTEM_PROMPTS: Dict[str, str] = {
-    "factual": "Answer the question directly and concisely.",
-    "math": "Solve the math problem step by step. State the final answer clearly.",
-    "sentiment": "Classify the sentiment of the text as Positive, Negative, or Neutral. Respond with a single word first, then a brief explanation if needed.",
-    "summarization": "Provide a concise summary in 1-3 sentences.",
-    "ner": "Extract all named entities (people, organizations, locations, dates) from the text. List each entity and its type.",
-    "debugging": "Identify the bug, explain it briefly, and provide the corrected code.",
-    "logic": "Solve the problem step by step using logical reasoning. State the conclusion clearly.",
-    "code_gen": "Write clean, correct, working code. Include brief comments.",
-}
 
 # ---------------------------------------------------------------------------
 # Few-shot example bank – HIGH-complexity categories only
@@ -100,7 +86,7 @@ def build_messages(
     Returns:
         A list of message dicts ready for model consumption.
     """
-    system_content = SYSTEM_PROMPTS.get(category, "Answer the question directly.")
+    system_content = "You are a helpful AI assistant. Follow the user's instructions exactly, paying strict attention to any length, formatting, or reasoning constraints requested."
     messages: List[Dict[str, str]] = []
 
     # Inject few-shot examples for high-complexity categories

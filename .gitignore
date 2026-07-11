@@ -27,3 +27,8 @@ output/
 .idea/
 *.swp
 .DS_Store
+
+# Presentation files
+generate_presentation.py
+Presentation.pdf
+video/
