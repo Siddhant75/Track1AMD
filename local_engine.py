@@ -82,7 +82,7 @@ class LocalEngine:
             n_ctx=self._n_ctx,       # Context window
             n_threads=self._n_threads,  # Match 2 vCPU ceiling
             n_batch=self._n_batch,   # CPU-optimized batch size
-            logits_all=True,         # Must be True for logprobs in llama-cpp-python
+            logits_all=False,        # Only need last-token logprobs
             verbose=False,           # Suppress llama.cpp logs
         )
         self._current_model_type = model_type

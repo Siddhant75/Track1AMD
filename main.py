@@ -183,7 +183,7 @@ def main() -> None:
             model_type = select_local_model(task.prompt)
             
             # DeepSeek needs more tokens to accommodate the <think> reasoning block
-            actual_max_tokens = max(max_tokens, 768) if model_type == "deepseek" else max_tokens
+            actual_max_tokens = max(max_tokens, 1024) if model_type == "deepseek" else max_tokens
             
             answer, confidence = engine.generate_with_confidence(
                 messages,
