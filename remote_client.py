@@ -100,7 +100,10 @@ class RemoteClient:
         if not model:
             return ""
 
-        url = f"{self.base_url}/v1/chat/completions"
+        base = self.base_url
+        if base.endswith("/v1"):
+            base = base[:-3]
+        url = f"{base}/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
