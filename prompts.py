@@ -64,6 +64,36 @@ FEW_SHOT_EXAMPLES: Dict[str, List[Dict[str, str]]] = {
             "assistant": '```python\ndef factorial(n: int) -> int:\n    """Return n! for non-negative integers."""\n    if n < 0:\n        raise ValueError("n must be non-negative")\n    result = 1\n    for i in range(2, n + 1):\n        result *= i\n    return result\n```',
         },
     ],
+    "summarization": [
+        {
+            "user": "Summarize the following text in exactly two sentences.\n\nThe Apollo 11 mission launched on July 16, 1969, carrying astronauts Neil Armstrong, Buzz Aldrin, and Michael Collins. Four days later, Armstrong and Aldrin became the first humans to walk on the Moon, an event watched by millions worldwide. They collected samples and deployed instruments before returning safely to Earth.",
+            "assistant": "In 1969, the Apollo 11 mission successfully landed the first humans on the Moon. Astronauts Armstrong and Aldrin explored the lunar surface before returning safely to Earth.",
+        },
+        {
+            "user": "Summarize this article using exactly three bullet points.\n\nThe global economy showed signs of recovery this quarter. Tech stocks rebounded strongly after last year's dip. However, inflation remains a persistent concern for many central banks. Consumer spending has slightly decreased as interest rates climb.",
+            "assistant": "- The global economy is recovering, led by a strong rebound in tech stocks.\n- Inflation continues to be a major concern for central banks worldwide.\n- Consumer spending has dropped slightly due to rising interest rates.",
+        },
+    ],
+    "sentiment": [
+        {
+            "user": "Is this review positive or negative? Explain your reasoning.\n\nThe food at the restaurant was absolutely delicious, but the service was incredibly slow and the waiters were rude.",
+            "assistant": "Negative because the service was incredibly slow and rude BUT the food was absolutely delicious.",
+        },
+        {
+            "user": "Determine if the sentiment is positive, negative, or neutral.\n\nThe new smartphone has a stunning display and lightning-fast processor, although the battery life is quite disappointing.",
+            "assistant": "Positive because the display and processor are excellent BUT the battery life is disappointing.",
+        },
+    ],
+    "ner": [
+        {
+            "user": "Extract all named entities from this text.\n\nOn Tuesday, Tim Cook announced that Apple will be opening a new campus in Austin next year.",
+            "assistant": "PERSON: Tim Cook\nORGANIZATION: Apple\nLOCATION: Austin\nDATE: Tuesday, next year",
+        },
+        {
+            "user": "Find the entities in the following sentence: Microsoft CEO Satya Nadella visited London on October 24, 2023.",
+            "assistant": "PERSON: Satya Nadella\nORGANIZATION: Microsoft\nLOCATION: London\nDATE: October 24, 2023",
+        },
+    ],
 }
 
 

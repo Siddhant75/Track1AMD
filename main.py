@@ -36,7 +36,6 @@ from router import (
     get_temperature,
     get_task_type,
     should_escalate,
-    build_verification_prompt,
     select_local_model,
 )
 from schemas import TaskInput, TaskOutput, read_tasks, write_results
@@ -45,7 +44,7 @@ from validator import validate_and_correct
 # ---------------------------------------------------------------------------
 # Timing constants
 # ---------------------------------------------------------------------------
-PANIC_THRESHOLD_SECS = 9 * 60       # Abandon local processing at 9 minutes
+PANIC_THRESHOLD_SECS = 8 * 60       # Abandon local processing at 8 minutes
 PER_TASK_TIMEOUT_SECS = 25          # Per-task ceiling (under 30s SLA)
 
 # ---------------------------------------------------------------------------
@@ -226,13 +225,9 @@ def main() -> None:
                     f"ESCALATE ({esc_reason})",
                     flush=True,
                 )
-                # Build a compressed verification prompt to save remote tokens
-                verification_prompt = build_verification_prompt(
-                    category, task.prompt, answer,
-                )
                 escalation_queue.append({
                     "task_id": task.task_id,
-                    "messages": [{"role": "user", "content": verification_prompt}],
+                    "messages": [{"role": "user", "content": task.prompt}],
                     "max_tokens": max_tokens,
                     "task_type": get_task_type(category),
                     "local_answer": answer,  # Keep as fallback

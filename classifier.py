@@ -31,9 +31,9 @@ class ComplexityTier(str, Enum):
 # Maps each category to its complexity tier
 CATEGORY_COMPLEXITY: dict[TaskCategory, ComplexityTier] = {
     TaskCategory.FACTUAL: ComplexityTier.LOW,
-    TaskCategory.SENTIMENT: ComplexityTier.LOW,
-    TaskCategory.SUMMARIZATION: ComplexityTier.LOW,
-    TaskCategory.NER: ComplexityTier.LOW,
+    TaskCategory.SENTIMENT: ComplexityTier.HIGH,
+    TaskCategory.SUMMARIZATION: ComplexityTier.HIGH,
+    TaskCategory.NER: ComplexityTier.HIGH,
     TaskCategory.MATH: ComplexityTier.HIGH,
     TaskCategory.DEBUGGING: ComplexityTier.HIGH,
     TaskCategory.LOGIC: ComplexityTier.HIGH,
