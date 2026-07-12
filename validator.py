@@ -36,10 +36,12 @@ def validate_and_correct(prompt: str, local_answer: str) -> Tuple[bool, str]:
     if '</think>' in answer_stripped:
         # DeepSeek sometimes omits the opening <think> tag but includes the closing tag
         answer_cleaned = answer_stripped.split('</think>')[-1].strip()
+    elif '<think>' in answer_stripped:
+        # If there's an opening tag but no closing tag, the answer is truncated inside the thought process.
+        # This means there is no final answer, so we return empty string to fail the critic.
+        answer_cleaned = ""
     else:
-        answer_cleaned = re.sub(r'<think>.*?</think>', '', answer_stripped, flags=re.DOTALL).strip()
-        # Fallback if only opening tag exists
-        answer_cleaned = re.sub(r'<think>.*', '', answer_cleaned, flags=re.DOTALL).strip()
+        answer_cleaned = answer_stripped
     
     # 1. Exactly N sentences
     sentence_match = re.search(r'\bexactly\s+(one|two|three|four|five|1|2|3|4|5)\s+sentences?\b', prompt_lower)

@@ -36,14 +36,14 @@ class RoutingTier:
 # ---------------------------------------------------------------------------
 
 _CATEGORY_ROUTING: Dict[TaskCategory, str] = {
-    TaskCategory.SENTIMENT: RoutingTier.LOCAL_FIRST, # Changed to LOCAL_FIRST for strict constraints
-    TaskCategory.NER: RoutingTier.LOCAL_FIRST,
+    TaskCategory.SENTIMENT: RoutingTier.LOCAL_ONLY,
+    TaskCategory.NER: RoutingTier.LOCAL_ONLY,
     TaskCategory.FACTUAL: RoutingTier.LOCAL_FIRST,
     TaskCategory.SUMMARIZATION: RoutingTier.LOCAL_FIRST,
-    TaskCategory.MATH: RoutingTier.LOCAL_FIRST,
-    TaskCategory.LOGIC: RoutingTier.LOCAL_FIRST,
-    TaskCategory.DEBUGGING: RoutingTier.LOCAL_FIRST,
-    TaskCategory.CODE_GEN: RoutingTier.LOCAL_FIRST,
+    TaskCategory.MATH: RoutingTier.REMOTE_PREFERRED,
+    TaskCategory.LOGIC: RoutingTier.REMOTE_PREFERRED,
+    TaskCategory.DEBUGGING: RoutingTier.REMOTE_PREFERRED,
+    TaskCategory.CODE_GEN: RoutingTier.REMOTE_PREFERRED,
 }
 
 # ---------------------------------------------------------------------------
@@ -223,6 +223,12 @@ def should_escalate(
     """
     tier = get_routing_tier(category)
 
+    if tier == RoutingTier.LOCAL_ONLY:
+        return False, "local_only_tier"
+
+    if tier == RoutingTier.REMOTE_PREFERRED:
+        return True, "remote_preferred_tier"
+
     # If python validator forcefully rejected the output, ALWAYS escalate
     if not validator_passed:
         return True, "validator_rejected (failed strict constraints)"
@@ -231,14 +237,11 @@ def should_escalate(
     if not critic_passed:
         return True, f"critic_rejected (conf={confidence:.2f})"
 
-    # Check confidence against category-specific threshold
-    threshold = get_confidence_threshold(category)
-    if confidence < threshold:
-        return True, f"low_confidence ({confidence:.2f} < {threshold})"
-        
+    # Since logprob confidence is 0.0 due to disabled logits_all, 
+    # we MUST escalate based on complexity for LOCAL_FIRST tasks.
     complexity = assess_prompt_complexity(prompt)
-    if complexity > 0.4 and confidence < (threshold + 0.5):
-        return True, f"high_complexity_moderate_confidence (c={complexity:.2f}, conf={confidence:.2f})"
+    if complexity > 0.3:
+        return True, f"high_complexity ({complexity:.2f})"
 
     # Check for suspiciously short answers on complex tasks
     if category in (TaskCategory.MATH, TaskCategory.LOGIC, TaskCategory.CODE_GEN, TaskCategory.DEBUGGING):

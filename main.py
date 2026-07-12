@@ -163,6 +163,7 @@ def main() -> None:
                     ),
                     "max_tokens": _get_max_tokens(cat),
                     "task_type": get_task_type(cat),
+                    "original_prompt": remaining["task"].prompt,
                 })
             break
 
@@ -179,45 +180,53 @@ def main() -> None:
         )
 
         try:
-            # --- LOCAL INFERENCE with confidence ---
-            model_type = select_local_model(task.prompt)
-            
-            # DeepSeek needs more tokens to accommodate the <think> reasoning block
-            actual_max_tokens = max(max_tokens, 1024) if model_type == "deepseek" else max_tokens
-            
-            answer, confidence = engine.generate_with_confidence(
-                messages,
-                model_type=model_type,
-                max_tokens=actual_max_tokens,
-                temperature=temperature,
-            )
-
-            # --- VALIDATOR (Auto-correction) ---
-            validator_passed, answer = validate_and_correct(task.prompt, answer)
-
-            # --- CRITIC VALIDATION ---
-            is_valid, reason = validate_output(category, task.prompt, answer)
-
-            if not is_valid:
-                print(
-                    f"[CRITIC] Task {task.task_id} rejected ({reason}). "
-                    f"Retrying with temp=0.3...",
-                    flush=True,
-                )
-                # Retry with slightly higher temperature
+            if tier == RoutingTier.REMOTE_PREFERRED:
+                should_esc = True
+                esc_reason = "remote_preferred_tier"
+                answer = ""
+                confidence = 0.0
+                validator_passed = True
+                is_valid = True
+            else:
+                # --- LOCAL INFERENCE with confidence ---
+                model_type = select_local_model(task.prompt)
+                
+                # DeepSeek needs more tokens to accommodate the <think> reasoning block
+                actual_max_tokens = max(max_tokens, 1024) if model_type == "deepseek" else max_tokens
+                
                 answer, confidence = engine.generate_with_confidence(
                     messages,
                     model_type=model_type,
-                    max_tokens=max_tokens,
-                    temperature=0.3,
+                    max_tokens=actual_max_tokens,
+                    temperature=temperature,
                 )
+
+                # --- VALIDATOR (Auto-correction) ---
                 validator_passed, answer = validate_and_correct(task.prompt, answer)
+
+                # --- CRITIC VALIDATION ---
                 is_valid, reason = validate_output(category, task.prompt, answer)
 
-            # --- SMART ESCALATION DECISION ---
-            should_esc, esc_reason = should_escalate(
-                category, task.prompt, answer, confidence, is_valid, validator_passed
-            )
+                if not is_valid:
+                    print(
+                        f"[CRITIC] Task {task.task_id} rejected ({reason}). "
+                        f"Retrying with temp=0.3...",
+                        flush=True,
+                    )
+                    # Retry with slightly higher temperature
+                    answer, confidence = engine.generate_with_confidence(
+                        messages,
+                        model_type=model_type,
+                        max_tokens=actual_max_tokens,
+                        temperature=0.3,
+                    )
+                    validator_passed, answer = validate_and_correct(task.prompt, answer)
+                    is_valid, reason = validate_output(category, task.prompt, answer)
+
+                # --- SMART ESCALATION DECISION ---
+                should_esc, esc_reason = should_escalate(
+                    category, task.prompt, answer, confidence, is_valid, validator_passed
+                )
 
             if should_esc and tier != RoutingTier.LOCAL_ONLY:
                 print(
@@ -227,10 +236,14 @@ def main() -> None:
                 )
                 escalation_queue.append({
                     "task_id": task.task_id,
-                    "messages": [{"role": "user", "content": task.prompt}],
+                    "messages": [
+                        {"role": "system", "content": "You are a helpful AI assistant. Follow the user's instructions exactly, paying strict attention to any length, formatting, or reasoning constraints requested."},
+                        {"role": "user", "content": task.prompt}
+                    ],
                     "max_tokens": max_tokens,
                     "task_type": get_task_type(category),
                     "local_answer": answer,  # Keep as fallback
+                    "original_prompt": task.prompt,
                 })
             else:
                 # Accept local answer
@@ -249,9 +262,13 @@ def main() -> None:
             )
             pending_remote.append({
                 "task_id": task.task_id,
-                "messages": messages,
+                "messages": [
+                    {"role": "system", "content": "You are a helpful AI assistant. Follow the user's instructions exactly."},
+                    {"role": "user", "content": task.prompt}
+                ],
                 "max_tokens": max_tokens,
                 "task_type": get_task_type(category),
+                "original_prompt": task.prompt,
             })
 
     # ------------------------------------------------------------------
@@ -279,6 +296,12 @@ def main() -> None:
                         for eq in escalation_queue:
                             if eq["task_id"] == r["task_id"]:
                                 answer = eq.get("local_answer", answer)
+                                break
+                    else:
+                        # Validate remote answer
+                        for eq in escalation_queue:
+                            if eq["task_id"] == r["task_id"]:
+                                _, answer = validate_and_correct(eq["original_prompt"], answer)
                                 break
                     results.append(
                         TaskOutput(task_id=r["task_id"], answer=answer)
@@ -324,8 +347,14 @@ def main() -> None:
             if client.is_available:
                 remote_results = asyncio.run(client.generate_batch(pending_remote))
                 for r in remote_results:
+                    answer = r["answer"]
+                    if answer and answer != "Unable to process.":
+                        for pt in pending_remote:
+                            if pt["task_id"] == r["task_id"]:
+                                _, answer = validate_and_correct(pt["original_prompt"], answer)
+                                break
                     results.append(
-                        TaskOutput(task_id=r["task_id"], answer=r["answer"])
+                        TaskOutput(task_id=r["task_id"], answer=answer)
                     )
             else:
                 print("[REMOTE] Client not configured. Using fallback.", flush=True)
