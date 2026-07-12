@@ -118,8 +118,6 @@ class LocalEngine:
             temperature=temperature,
             top_p=top_p,
             repeat_penalty=repeat_penalty,
-            logprobs=True,
-            top_logprobs=1,
         )
 
         # Extract the assistant's reply
@@ -161,8 +159,6 @@ class LocalEngine:
             temperature=temperature,
             top_p=top_p,
             repeat_penalty=repeat_penalty,
-            logprobs=True,
-            top_logprobs=1,
         )
 
         content = response["choices"][0]["message"]["content"]
@@ -180,33 +176,8 @@ class LocalEngine:
 
 
 def _extract_avg_logprob(response: dict) -> float:
-    """Extract the average log-probability from a chat completion response.
-
-    Returns a very negative value (-10.0) if logprobs are not available,
-    which signals low confidence and triggers remote escalation.
+    """Since logprobs is unsupported with logits_all=False in this version,
+    we return a dummy high confidence (0.0). Complexity/Category routing handles escalation.
     """
-    try:
-        logprobs_data = response["choices"][0].get("logprobs")
-        if not logprobs_data:
-            return -10.0
-
-        content_logprobs = logprobs_data.get("content", [])
-        if not content_logprobs:
-            return -10.0
-
-        total = 0.0
-        count = 0
-        for token_info in content_logprobs:
-            lp = token_info.get("logprob")
-            if lp is not None and math.isfinite(lp):
-                total += lp
-                count += 1
-
-        if count == 0:
-            return -10.0
-
-        return total / count
-
-    except (KeyError, IndexError, TypeError):
-        return -10.0
+    return 0.0
 
