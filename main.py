@@ -79,9 +79,12 @@ def _get_max_tokens(category: TaskCategory) -> int:
     return _MAX_TOKENS.get(category, 512)
 
 
-def _sort_key(item: Dict[str, Any]) -> int:
-    """Sort tasks by processing order (easy first)."""
-    return _PROCESSING_ORDER.get(item["category"], 99)
+def _sort_key(item: Dict[str, Any]) -> tuple:
+    """Sort tasks by model_type (to minimize swapping), then processing order."""
+    model_type = select_local_model(item["task"].prompt)
+    # Process Gemma first (faster), then DeepSeek
+    model_priority = 0 if model_type == "gemma" else 1
+    return (model_priority, _PROCESSING_ORDER.get(item["category"], 99))
 
 
 def main() -> None:
