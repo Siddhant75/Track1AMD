@@ -64,7 +64,7 @@ def validate_and_correct(prompt: str, local_answer: str) -> Tuple[bool, str]:
             return False, answer_cleaned
             
     # 2. Word count limits (e.g., "no longer than 15 words" or "under 15 words")
-    word_limit_match = re.search(r'(?:no longer than|under|at most|maximum)\s+(\d+)\s+words', prompt_lower)
+    word_limit_match = re.search(r'(?:no longer than|no more than|under|at most|maximum)\s+(\d+)\s+words', prompt_lower)
     if word_limit_match:
         limit = int(word_limit_match.group(1))
         
