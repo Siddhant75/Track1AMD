@@ -87,7 +87,7 @@ jobs:
             -v ${{ github.workspace }}/test_output:/output \
             -e FIREWORKS_API_KEY=${{ secrets.FIREWORKS_API_KEY }} \
             -e FIREWORKS_BASE_URL=https://api.fireworks.ai/inference/v1 \
-            -e ALLOWED_MODELS="accounts/fireworks/models/llama-v3p1-8b-instruct,accounts/fireworks/models/mixtral-8x7b-instruct" \
+            -e ALLOWED_MODELS="minimax-m3,kimi-k2p7-code,gemma-4-31b-it,gemma-4-26b-a4b-it,gemma-4-31b-it-nvfp4" \
             ${{ secrets.DOCKERHUB_USERNAME }}/amd-track1-agent:latest
             
           # Verify results.json exists and contains actual output
