@@ -33,7 +33,13 @@ def validate_and_correct(prompt: str, local_answer: str) -> Tuple[bool, str]:
     answer_stripped = local_answer.strip()
     
     # Remove <think> blocks before counting/validating
-    answer_cleaned = re.sub(r'<think>.*?</think>', '', answer_stripped, flags=re.DOTALL).strip()
+    if '</think>' in answer_stripped:
+        # DeepSeek sometimes omits the opening <think> tag but includes the closing tag
+        answer_cleaned = answer_stripped.split('</think>')[-1].strip()
+    else:
+        answer_cleaned = re.sub(r'<think>.*?</think>', '', answer_stripped, flags=re.DOTALL).strip()
+        # Fallback if only opening tag exists
+        answer_cleaned = re.sub(r'<think>.*', '', answer_cleaned, flags=re.DOTALL).strip()
     
     # 1. Exactly N sentences
     sentence_match = re.search(r'\bexactly\s+(one|two|three|four|five|1|2|3|4|5)\s+sentences?\b', prompt_lower)
@@ -75,6 +81,31 @@ def validate_and_correct(prompt: str, local_answer: str) -> Tuple[bool, str]:
             if _count_words(answer_cleaned) > limit:
                 # Too long. Could truncate, but might lose meaning. Fail and escalate.
                 return False, answer_cleaned
+                
+    # 2.5 Exactly N words
+    exact_word_match = re.search(r'\bexactly\s+(one|two|three|four|five|1|2|3|4|5)\s+words?\b', prompt_lower)
+    if exact_word_match:
+        word_to_num = {'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+                       '1': 1, '2': 2, '3': 3, '4': 4, '5': 5}
+        target_words = word_to_num[exact_word_match.group(1)]
+        current_words = _count_words(answer_cleaned)
+        if current_words != target_words:
+            # Maybe it contains punctuation that makes it hard to count? 
+            # If it's a short response, let's just fail and let Fireworks handle it
+            # if we can't trivially extract the exact word(s)
+            
+            # Auto-correction: if current_words > target_words, try taking the first N words
+            if current_words > target_words:
+                words = [w for w in re.split(r'\s+', answer_cleaned) if w]
+                if len(words) >= target_words:
+                    corrected = " ".join(words[:target_words])
+                    # Ensure we don't accidentally truncate a negative to a positive (e.g. "not happy" -> "not")
+                    # Given the risk, if it's "exactly one word", taking the last word is sometimes better
+                    if target_words == 1:
+                        # Just fail, let remote handle it perfectly
+                        return False, answer_cleaned
+                    return True, corrected
+            return False, answer_cleaned
                 
     # 3. Exactly N bullet points
     bullet_match = re.search(r'\bexactly\s+(one|two|three|four|five|1|2|3|4|5)\s+bullet\s+points?\b', prompt_lower)

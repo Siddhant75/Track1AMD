@@ -179,10 +179,14 @@ def main() -> None:
         try:
             # --- LOCAL INFERENCE with confidence ---
             model_type = select_local_model(task.prompt)
+            
+            # DeepSeek needs more tokens to accommodate the <think> reasoning block
+            actual_max_tokens = max(max_tokens, 768) if model_type == "deepseek" else max_tokens
+            
             answer, confidence = engine.generate_with_confidence(
                 messages,
                 model_type=model_type,
-                max_tokens=max_tokens,
+                max_tokens=actual_max_tokens,
                 temperature=temperature,
             )
 
