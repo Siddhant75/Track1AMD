@@ -141,6 +141,7 @@ class RemoteClient:
     async def generate_batch(
         self,
         tasks: List[Dict[str, Any]],
+        max_concurrent: int = 8,
     ) -> List[Dict[str, str]]:
         """Fire off multiple tasks concurrently to the remote API.
 
@@ -153,8 +154,7 @@ class RemoteClient:
         Returns:
             A list of {"task_id": ..., "answer": ...} dicts.
         """
-
-        sem = asyncio.Semaphore(5)
+        sem = asyncio.Semaphore(max_concurrent)
 
         async def _process_one(task: Dict[str, Any]) -> Dict[str, str]:
             async with sem:

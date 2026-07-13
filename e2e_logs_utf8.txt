@@ -1,0 +1,17 @@
+﻿[BOOT] Agent starting...
+python : Traceback (most recent call last):
+At line:1 char:2079
++ ... /fireworks/models/gemma-4-31b-it"; python main.py > e2e_logs.txt 2>&1
++                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "D:\AMDTrack1\main.py", line 596, in <module>
+    main()
+  File "D:\AMDTrack1\main.py", line 144, in main
+    tasks: List[TaskInput] = read_tasks(input_path)
+                             ^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\AMDTrack1\schemas.py", line 40, in read_tasks
+    with open(path, "r", encoding="utf-8") as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/input/tasks.json'

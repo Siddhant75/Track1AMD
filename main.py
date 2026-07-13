@@ -272,7 +272,8 @@ def main() -> None:
                 model_type = select_local_model(task.prompt)
 
                 # DeepSeek needs more tokens to accommodate the <think> reasoning block
-                actual_max_tokens = max(max_tokens, 1024) if model_type == "deepseek" else max_tokens
+                # Capped at 768 to prevent rambling from causing a timeout
+                actual_max_tokens = max(max_tokens, 768) if model_type == "deepseek" else max_tokens
 
                 answer, confidence = engine.generate_with_confidence(
                     messages,
@@ -300,33 +301,42 @@ def main() -> None:
                 # --- CRITIC VALIDATION ---
                 is_valid, reason = validate_output(category, task.prompt, answer)
 
+                # --- CONSTRAINT RETRY ---
                 if not is_valid:
-                    print(
-                        f"[CRITIC] Task {task.task_id} rejected ({reason}). "
-                        f"Retrying with constraint hint...",
-                        flush=True,
-                    )
-                    # Constraint-aware retry: inject the EXACT failure reason
-                    # so the model knows what to fix rather than guessing.
-                    hint = get_constraint_hint(task.prompt, answer)
-                    retry_messages = messages + [
-                        {"role": "assistant", "content": answer},
-                        {"role": "user", "content": hint},
-                    ]
-                    answer, confidence = engine.generate_with_confidence(
-                        retry_messages,
-                        model_type=model_type,
-                        max_tokens=actual_max_tokens,
-                        temperature=0.1,  # Keep deterministic — hint guides it
-                    )
-                    answer = extract_answer(category, answer)
-                    validator_passed, answer = validate_and_correct(task.prompt, answer)
-                    is_valid, reason = validate_output(category, task.prompt, answer)
+                    # Time-Aware Retry: If we are running out of time, skip retry and escalate
+                    if elapsed() > RETRY_DEADLINE_SECS:
+                        print(f"[RETRY-SKIP] Task {task.task_id} failed constraints, but time > {RETRY_DEADLINE_SECS}s. Escalating.", flush=True)
+                        should_esc = True
+                        esc_reason = "timeout_prevent_retry"
+                    else:
+                        print(f"[RETRY] Task {task.task_id} failed constraints: {reason}. Retrying...", flush=True)
+                        hint = get_constraint_hint(category, reason)
+                        retry_messages = messages + [
+                            {"role": "assistant", "content": answer},
+                            {"role": "user", "content": f"Your previous answer was rejected because: {reason}\n\n{hint}"}
+                        ]
+                        
+                        answer, confidence = engine.generate_with_confidence(
+                            retry_messages,
+                            model_type=model_type,
+                            max_tokens=actual_max_tokens,
+                            temperature=0.1,  # Keep deterministic — hint guides it
+                        )
+                        answer = extract_answer(category, answer)
+                        validator_passed, answer = validate_and_correct(task.prompt, answer)
+                        is_valid, reason = validate_output(category, task.prompt, answer)
+                        
+                        if not is_valid:
+                            should_esc = True
+                            esc_reason = "failed_constraint_retry"
+                else:
+                    should_esc = False
 
                 # --- SMART ESCALATION DECISION ---
-                should_esc, esc_reason = should_escalate(
-                    category, task.prompt, answer, confidence, is_valid, validator_passed
-                )
+                if not should_esc:
+                    should_esc, esc_reason = should_escalate(
+                        category, task.prompt, answer, confidence, is_valid, validator_passed
+                    )
 
             if should_esc and tier != RoutingTier.LOCAL_ONLY:
                 print(
