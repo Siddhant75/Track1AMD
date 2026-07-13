@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional
 
 from classifier import TaskCategory, ComplexityTier, classify, get_complexity
 from critic import validate_output
+from extractor import extract_answer
 from local_engine import LocalEngine
 from prompts import build_messages
 from router import (
@@ -40,7 +41,7 @@ from router import (
     assess_prompt_complexity,
 )
 from schemas import TaskInput, TaskOutput, read_tasks, write_results
-from validator import validate_and_correct
+from validator import validate_and_correct, get_constraint_hint
 
 # ---------------------------------------------------------------------------
 # Timing constants
@@ -88,11 +89,21 @@ def _get_max_tokens(category: TaskCategory) -> int:
     return _MAX_TOKENS.get(category, 512)
 
 
-def _sort_key(item: Dict[str, Any]) -> tuple:
-    """Sort tasks by model_type (to minimize swapping), then processing order."""
-    model_type = select_local_model(item["task"].prompt)
-    # Process Gemma first (faster), then DeepSeek
-    model_priority = 0 if model_type == "gemma" else 1
+def _sort_key(item: dict) -> tuple:
+    """Two-phase sort: Gemma tasks first, DeepSeek tasks second.
+
+    Within each phase, sort by processing order (easy categories first).
+    This minimises model swaps — Gemma loads once, runs all its tasks,
+    then DeepSeek loads once, runs all its tasks.
+    """
+    from router import select_local_model, RoutingTier
+    tier = item["tier"]
+    # REMOTE_PREFERRED tasks go last (they'll be escalated anyway)
+    if tier == RoutingTier.REMOTE_PREFERRED:
+        model_priority = 2
+    else:
+        model_type = select_local_model(item["task"].prompt)
+        model_priority = 0 if model_type == "gemma" else 1  # Gemma=0, DeepSeek=1
     return (model_priority, _PROCESSING_ORDER.get(item["category"], 99))
 
 
@@ -270,8 +281,21 @@ def main() -> None:
                     temperature=temperature,
                 )
 
+                # --- EXTRACTOR: pull core answer from verbose output ---
+                answer = extract_answer(category, answer)
+
                 # --- VALIDATOR (Auto-correction pass 1) ---
                 validator_passed, answer = validate_and_correct(task.prompt, answer)
+
+                # --- EARLY EXIT: fast path for LOCAL_ONLY if already valid ---
+                if tier == RoutingTier.LOCAL_ONLY and validator_passed:
+                    results.append(TaskOutput(task_id=task.task_id, answer=answer))
+                    print(
+                        f"[FAST] {idx + 1}/{active_total} | {category.value:<14} | "
+                        f"LOCAL_FAST | {elapsed():.1f}s",
+                        flush=True,
+                    )
+                    continue
 
                 # --- CRITIC VALIDATION ---
                 is_valid, reason = validate_output(category, task.prompt, answer)
@@ -279,16 +303,23 @@ def main() -> None:
                 if not is_valid:
                     print(
                         f"[CRITIC] Task {task.task_id} rejected ({reason}). "
-                        f"Retrying with temp=0.3...",
+                        f"Retrying with constraint hint...",
                         flush=True,
                     )
-                    # Retry with slightly higher temperature
+                    # Constraint-aware retry: inject the EXACT failure reason
+                    # so the model knows what to fix rather than guessing.
+                    hint = get_constraint_hint(task.prompt, answer)
+                    retry_messages = messages + [
+                        {"role": "assistant", "content": answer},
+                        {"role": "user", "content": hint},
+                    ]
                     answer, confidence = engine.generate_with_confidence(
-                        messages,
+                        retry_messages,
                         model_type=model_type,
                         max_tokens=actual_max_tokens,
-                        temperature=0.3,
+                        temperature=0.1,  # Keep deterministic — hint guides it
                     )
+                    answer = extract_answer(category, answer)
                     validator_passed, answer = validate_and_correct(task.prompt, answer)
                     is_valid, reason = validate_output(category, task.prompt, answer)
 

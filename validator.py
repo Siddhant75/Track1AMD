@@ -1,10 +1,12 @@
 """
 Output Validator and Auto-Corrector for strict grading constraints.
 
-Two responsibilities:
+Three responsibilities:
   1. Strip <think> blocks from DeepSeek local model outputs.
   2. Strip introductory/concluding "fluff" from zero-shot remote model outputs
      so that format constraints (exact words, bullets, sentences) pass cleanly.
+  3. Expose get_constraint_hint() for constraint-aware retry prompts injected
+     by main.py when the first local attempt fails a format constraint.
 
 If an output cannot be auto-corrected, returns (False, answer) to signal
 that the critic should escalate this to the next tier.
@@ -199,19 +201,38 @@ def validate_and_correct(prompt: str, local_answer: str) -> Tuple[bool, str]:
         if target_words is not None:
             current_words = _count_words(answer_cleaned)
             if current_words != target_words:
-                if current_words > target_words:
+                if target_words == 1:
+                    # --- Priority chain for single-word extraction ---
+                    # 1. Already exactly 1 word after stripping punctuation
+                    words_clean = [w.strip(".,!?;:\"'") for w in answer_cleaned.split() if w.strip(".,!?;:\"'")]
+                    if len(words_clean) == 1:
+                        return True, words_clean[0]
+
+                    # 2. After colon: "Answer: Paris" / "The capital is: Paris"
+                    colon_match = re.search(r":\s*([^\s.,!?;:]+)\s*$", answer_cleaned)
+                    if colon_match:
+                        candidate = colon_match.group(1).strip(".,!?;:\"'")
+                        if candidate:
+                            return True, candidate
+
+                    # 3. Quoted word: "Paris" or 'Paris'
+                    quote_match = re.search(r'["\u2018\u2019\u201c\u201d]([^"\u2018\u2019\u201c\u201d]+)["\u2018\u2019\u201c\u201d]', answer_cleaned)
+                    if quote_match and len(quote_match.group(1).split()) == 1:
+                        return True, quote_match.group(1).strip(".,!?;:\"'")
+
+                    # 4. "answer is X" / "result is X" pattern
+                    ans_match = re.search(r"(?:answer|result|value)\s+(?:is|:)\s+([^\s.,!?]+)", answer_cleaned, re.IGNORECASE)
+                    if ans_match:
+                        return True, ans_match.group(1).strip(".,!?;:\"'")
+
+                    # 5. Cannot reliably extract — fail, let remote handle it
+                    return False, answer_cleaned
+
+                elif current_words > target_words:
                     words = [w for w in re.split(r"\s+", answer_cleaned) if w]
                     if len(words) >= target_words:
-                        # For "exactly 1 word": prefer the last substantive word
-                        # (models often lead with "The answer is: <word>")
-                        if target_words == 1:
-                            # Try to find the last non-stop-word token
-                            candidates = [
-                                w.strip(".,!?;:\"'") for w in words if w.strip(".,!?;:\"'")
-                            ]
-                            if candidates:
-                                return True, candidates[-1]
                         return True, " ".join(words[:target_words])
+
                 return False, answer_cleaned
 
     # ------------------------------------------------------------------
@@ -247,4 +268,106 @@ def validate_and_correct(prompt: str, local_answer: str) -> Tuple[bool, str]:
             elif len(bullets) < target_bullets:
                 return False, answer_cleaned
 
+
     return True, answer_cleaned
+
+
+# ---------------------------------------------------------------------------
+# Constraint-aware retry hint generator
+# ---------------------------------------------------------------------------
+
+def get_constraint_hint(prompt: str, failed_answer: str) -> str:
+    """Generate a specific constraint-failure hint for the retry prompt.
+
+    Instead of blindly retrying with a higher temperature, this tells the
+    model EXACTLY what it did wrong so the retry has a much higher chance
+    of succeeding.
+
+    Args:
+        prompt: The original task prompt.
+        failed_answer: The answer that failed constraint validation.
+
+    Returns:
+        A short, precise correction instruction to append to the retry prompt.
+    """
+    prompt_lower = prompt.lower()
+
+    word_to_num = {
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+        "1": 1, "2": 2, "3": 3, "4": 4, "5": 5,
+    }
+
+    # ---- Bullet point constraint ----
+    bullet_match = re.search(
+        r'\b(?:exactly\s+)?(one|two|three|four|five|\d+)\s+bullet\s+points?\b',
+        prompt_lower,
+    )
+    if bullet_match:
+        raw = bullet_match.group(1)
+        n = word_to_num.get(raw, int(raw) if raw.isdigit() else None)
+        if n is not None:
+            actual = len(_extract_bullets(failed_answer))
+            return (
+                f"CORRECTION REQUIRED: Your previous answer had {actual} bullet points "
+                f"but exactly {n} bullet point(s) are required. "
+                f"Respond with exactly {n} bullet point(s), each starting with '- '. "
+                f"Do not include any introductory or concluding text."
+            )
+
+    # ---- Sentence constraint ----
+    sentence_match = re.search(
+        r'\bexactly\s+(one|two|three|four|five|1|2|3|4|5)\s+sentences?\b',
+        prompt_lower,
+    )
+    if not sentence_match:
+        sentence_match = re.search(
+            r'\b(one|two|three|four|five|1|2|3|4|5)-sentence\b',
+            prompt_lower,
+        )
+    if sentence_match:
+        raw = sentence_match.group(1)
+        n = word_to_num.get(raw, int(raw) if raw.isdigit() else None)
+        if n is not None:
+            actual = _count_sentences(failed_answer)
+            return (
+                f"CORRECTION REQUIRED: Your previous answer had {actual} sentence(s) "
+                f"but exactly {n} sentence(s) are required. "
+                f"Respond in exactly {n} complete sentence(s). No more, no less."
+            )
+
+    # ---- Exact word count constraint ----
+    word_match = re.search(
+        r'\bexactly\s+(one|two|three|four|five|\d+)\s+words?\b',
+        prompt_lower,
+    )
+    if word_match:
+        raw = word_match.group(1)
+        n = word_to_num.get(raw, int(raw) if raw.isdigit() else None)
+        if n is not None:
+            actual = _count_words(failed_answer)
+            return (
+                f"CORRECTION REQUIRED: Your previous answer had {actual} word(s) "
+                f"but exactly {n} word(s) are required. "
+                f"Respond with exactly {n} word(s) and nothing else."
+            )
+
+    # ---- Word limit constraint ----
+    limit_match = re.search(
+        r'(?:no longer than|no more than|under|at most|maximum)\s+(\d+)\s+words',
+        prompt_lower,
+    )
+    if limit_match:
+        limit = int(limit_match.group(1))
+        actual = _count_words(failed_answer)
+        return (
+            f"CORRECTION REQUIRED: Your previous answer had {actual} words "
+            f"but the limit is {limit} words. "
+            f"Respond in {limit} words or fewer."
+        )
+
+    # ---- Generic fallback ----
+    return (
+        "CORRECTION REQUIRED: Your previous answer did not meet the format "
+        "constraints specified in the prompt. Read the constraints carefully "
+        "and respond again, following them exactly."
+    )
