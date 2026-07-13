@@ -126,7 +126,8 @@ class RemoteClient:
                     else:
                         body = await resp.text()
                         print(
-                            f"[REMOTE] HTTP {resp.status}: {body[:200]}",
+                            f"[REMOTE] HTTP {resp.status} | model={model} | "
+                            f"url={url} | body={body[:500]}",
                             flush=True,
                         )
                         return ""
