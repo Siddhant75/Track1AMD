@@ -22,9 +22,9 @@ import aiohttp
 # Model preference for different task types
 # Higher priority = tried first
 _MODEL_PRIORITY = {
-    "code": ["kimi-k2p7-code", "gemma-4-31b-it", "gemma-4-26b-a4b-it"],
-    "general": ["gemma-4-31b-it", "gemma-4-26b-a4b-it", "minimax-m3", "kimi-k2p7-code"],
-    "reasoning": ["gemma-4-31b-it", "minimax-m3", "gemma-4-26b-a4b-it"],
+    "code": ["kimi-k2p7-code", "minimax-m3"],
+    "general": ["minimax-m3", "kimi-k2p7-code"],
+    "reasoning": ["minimax-m3", "kimi-k2p7-code"],
 }
 
 
@@ -165,10 +165,17 @@ class RemoteClient:
                 )
                 return {"task_id": task["task_id"], "answer": answer or "Unable to process."}
 
-        results = await asyncio.gather(
-            *[_process_one(t) for t in tasks],
-            return_exceptions=True,
-        )
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(
+                    *[_process_one(t) for t in tasks],
+                    return_exceptions=True,
+                ),
+                timeout=60.0
+            )
+        except asyncio.TimeoutError:
+            print("[REMOTE] FATAL: Entire batch timed out after 60s!", flush=True)
+            return [{"task_id": t["task_id"], "answer": "Unable to process."} for t in tasks]
 
         processed: List[Dict[str, str]] = []
         for i, r in enumerate(results):

@@ -46,8 +46,9 @@ from validator import validate_and_correct, get_constraint_hint
 # ---------------------------------------------------------------------------
 # Timing constants
 # ---------------------------------------------------------------------------
-PANIC_THRESHOLD_SECS = 8 * 60       # Abandon local processing at 8 minutes
+PANIC_THRESHOLD_SECS = int(5.5 * 60)  # 330 seconds (Hard Constraint: 5.5 minutes)
 PER_TASK_TIMEOUT_SECS = 25          # Per-task ceiling (under 30s SLA)
+RETRY_DEADLINE_SECS = 330           # Limit for retries
 
 # ---------------------------------------------------------------------------
 # Budgeted Skip: skip the hardest N% of tasks to save time for retry loops.
@@ -272,8 +273,8 @@ def main() -> None:
                 model_type = select_local_model(task.prompt)
 
                 # DeepSeek needs more tokens to accommodate the <think> reasoning block
-                # Capped at 768 to prevent rambling from causing a timeout
-                actual_max_tokens = max(max_tokens, 768) if model_type == "deepseek" else max_tokens
+                # Capped at 512 to prevent rambling from causing a timeout
+                actual_max_tokens = min(max_tokens, 512) if model_type == "deepseek" else max_tokens
 
                 answer, confidence = engine.generate_with_confidence(
                     messages,
@@ -418,26 +419,31 @@ def main() -> None:
                             )
                         else:
                             # Last resort: run DeepSeek locally right now
-                            try:
-                                fb_messages = build_messages(
-                                    cat.value if cat else "factual",
-                                    orig_prompt,
-                                    use_few_shot=True,
-                                )
-                                answer, _ = engine.generate_with_confidence(
-                                    fb_messages,
-                                    model_type="deepseek",
-                                    max_tokens=768,
-                                    temperature=0.1,
-                                )
-                                _, answer = validate_and_correct(orig_prompt, answer)
-                                print(
-                                    f"[FALLBACK] Task {r['task_id']} — DeepSeek local emergency.",
-                                    flush=True,
-                                )
-                            except Exception as fb_exc:
-                                print(f"[FALLBACK] DeepSeek failed: {fb_exc}", flush=True)
+                            # BUT ONLY if we aren't in a panic state or out of time!
+                            if force_exit or elapsed() > RETRY_DEADLINE_SECS:
+                                print(f"[FALLBACK] Task {r['task_id']} — SKIPPING local emergency due to deadline or panic.", flush=True)
                                 answer = "Unable to process."
+                            else:
+                                try:
+                                    fb_messages = build_messages(
+                                        cat.value if cat else "factual",
+                                        orig_prompt,
+                                        use_few_shot=True,
+                                    )
+                                    answer, _ = engine.generate_with_confidence(
+                                        fb_messages,
+                                        model_type="deepseek",
+                                        max_tokens=512,
+                                        temperature=0.1,
+                                    )
+                                    _, answer = validate_and_correct(orig_prompt, answer)
+                                    print(
+                                        f"[FALLBACK] Task {r['task_id']} — DeepSeek local emergency.",
+                                        flush=True,
+                                    )
+                                except Exception as fb_exc:
+                                    print(f"[FALLBACK] DeepSeek failed: {fb_exc}", flush=True)
+                                    answer = "Unable to process."
                     else:
                         # Validate and clean up the remote answer with Python
                         _, answer = validate_and_correct(orig_prompt, answer)
