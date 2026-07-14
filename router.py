@@ -36,12 +36,12 @@ class RoutingTier:
 # ---------------------------------------------------------------------------
 
 _CATEGORY_ROUTING: Dict[TaskCategory, str] = {
-    TaskCategory.SENTIMENT: RoutingTier.LOCAL_ONLY,
-    TaskCategory.NER: RoutingTier.LOCAL_ONLY,
+    TaskCategory.SENTIMENT: RoutingTier.LOCAL_FIRST,
+    TaskCategory.NER: RoutingTier.LOCAL_FIRST,
     TaskCategory.FACTUAL: RoutingTier.LOCAL_FIRST,
     TaskCategory.SUMMARIZATION: RoutingTier.LOCAL_FIRST,
+    TaskCategory.LOGIC: RoutingTier.LOCAL_FIRST,
     TaskCategory.MATH: RoutingTier.REMOTE_PREFERRED,
-    TaskCategory.LOGIC: RoutingTier.REMOTE_PREFERRED,
     TaskCategory.DEBUGGING: RoutingTier.REMOTE_PREFERRED,
     TaskCategory.CODE_GEN: RoutingTier.REMOTE_PREFERRED,
 }
@@ -222,9 +222,6 @@ def should_escalate(
         Tuple of (should_escalate: bool, reason: str).
     """
     tier = get_routing_tier(category)
-
-    if tier == RoutingTier.LOCAL_ONLY:
-        return False, "local_only_tier"
 
     if tier == RoutingTier.REMOTE_PREFERRED:
         return True, "remote_preferred_tier"

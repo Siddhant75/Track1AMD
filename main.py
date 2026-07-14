@@ -52,15 +52,6 @@ PER_TASK_TIMEOUT_SECS = 25          # Per-task ceiling (under 30s SLA)
 RETRY_DEADLINE_SECS = 330           # Limit for retries
 
 # ---------------------------------------------------------------------------
-# Budgeted Skip: skip the hardest N% of tasks to save time for retry loops.
-# These tasks still get sent to remote at the end (panic or escalation).
-# ---------------------------------------------------------------------------
-SKIP_BUDGET_PCT = 0.10              # Skip top 10% hardest tasks initially
-
-# Complexity score above which a task is considered "skippable" (deferred to remote)
-SKIP_COMPLEXITY_THRESHOLD = 0.75
-
-# ---------------------------------------------------------------------------
 # Max-token budgets per category (tuned for conciseness)
 # ---------------------------------------------------------------------------
 _MAX_TOKENS: Dict[TaskCategory, int] = {
@@ -165,39 +156,11 @@ def main() -> None:
     print(f"[CLASSIFY] Done ({elapsed():.1f}s)", flush=True)
 
     # ------------------------------------------------------------------
-    # 3. Budgeted Skip: defer the hardest tasks directly to remote API
-    #    so we don't waste local CPU time on tasks we'll escalate anyway.
+    # 3. Sort: easy tasks first (sentiment, NER, factual, summary)
     # ------------------------------------------------------------------
-    total = len(classified)
-    skip_budget = max(1, int(total * SKIP_BUDGET_PCT))
-
-    # Find items that are REMOTE_PREFERRED with very high complexity scores
-    # These are the best candidates to skip (they'd be escalated regardless)
-    skip_candidates = [
-        item for item in classified
-        if item["tier"] == RoutingTier.REMOTE_PREFERRED
-        and item["complexity_score"] >= SKIP_COMPLEXITY_THRESHOLD
-    ]
-    # Sort by complexity score descending, skip the top N
-    skip_candidates.sort(key=lambda x: x["complexity_score"], reverse=True)
-    skipped_ids = {item["task"].task_id for item in skip_candidates[:skip_budget]}
-
-    active_classified = [item for item in classified if item["task"].task_id not in skipped_ids]
-    deferred_classified = [item for item in classified if item["task"].task_id in skipped_ids]
-
+    classified.sort(key=_sort_key)
     print(
-        f"[SKIP] Budget={skip_budget} | Deferred {len(deferred_classified)} tasks "
-        f"(score>={SKIP_COMPLEXITY_THRESHOLD}) directly to remote. "
-        f"Processing {len(active_classified)} locally.",
-        flush=True,
-    )
-
-    # ------------------------------------------------------------------
-    # 4. Sort: easy tasks first (sentiment, NER, factual, summary)
-    # ------------------------------------------------------------------
-    active_classified.sort(key=_sort_key)
-    print(
-        f"[SORT] Order: {', '.join(item['category'].value for item in active_classified)}",
+        f"[SORT] Order: {', '.join(item['category'].value for item in classified)}",
         flush=True,
     )
 
@@ -213,21 +176,8 @@ def main() -> None:
     pending_remote: List[Dict[str, Any]] = []  # For panic or batch escalation
     escalation_queue: List[Dict[str, Any]] = []  # Confidence-based escalations
 
-    # Pre-populate pending_remote with deferred (skipped) tasks
-    for item in deferred_classified:
-        cat = item["category"]
-        pending_remote.append({
-            "task_id": item["task"].task_id,
-            "messages": _build_remote_messages(item["task"].prompt),
-            "max_tokens": _get_max_tokens(cat),
-            "task_type": get_task_type(cat),
-            "local_answer": "",   # No local answer — fully deferred
-            "original_prompt": item["task"].prompt,
-            "category": cat,
-        })
-
-    active_total = len(active_classified)
-    for idx, item in enumerate(active_classified):
+    active_total = len(classified)
+    for idx, item in enumerate(classified):
 
         # ---- PANIC CHECK ----
         if elapsed() >= PANIC_THRESHOLD_SECS:
@@ -236,7 +186,7 @@ def main() -> None:
                 f"{active_total - idx} remaining tasks to remote API.",
                 flush=True,
             )
-            for remaining in active_classified[idx:]:
+            for remaining in classified[idx:]:
                 cat = remaining["category"]
                 pending_remote.append({
                     "task_id": remaining["task"].task_id,
@@ -618,9 +568,7 @@ def main() -> None:
     write_results(results, output_path)
 
     # Summary stats
-    local_count = active_total - len(escalation_queue) - sum(
-        1 for pt in pending_remote if pt["task_id"] not in skipped_ids
-    )
+    local_count = active_total - len(escalation_queue) - len(pending_remote)
     print(
         f"[DONE] Wrote {len(results)} results in {elapsed():.1f}s. "
         f"Local: {local_count}, Escalated: {len(escalation_queue)}, "
