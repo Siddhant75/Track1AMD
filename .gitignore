@@ -32,3 +32,17 @@ output/
 generate_presentation.py
 Presentation.pdf
 video/
+
+# Analysis and logs
+0tokenagent_analysis.md
+*logs*
+*.txt
+
+# Mock and test directories
+mock_input/
+mock_output/
+test_output/
+
+# Testing scripts
+test_*.py
+run_*.py

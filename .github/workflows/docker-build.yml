@@ -21,9 +21,12 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Download Model Weights
+        env:
+          HF_HUB_DISABLE_PROGRESS_BARS: 1
+          HF_HUB_ENABLE_HF_TRANSFER: 1
         run: |
           mkdir -p models
-          pip install -U "huggingface_hub[cli]"
+          pip install -U "huggingface_hub[cli]" hf_transfer
           hf download bartowski/gemma-2-2b-it-GGUF \
               --include "gemma-2-2b-it-Q4_K_M.gguf" \
               --local-dir models
