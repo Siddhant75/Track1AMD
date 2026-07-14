@@ -112,13 +112,26 @@ class LocalEngine:
         self._load_model(model_type)
         assert self._model is not None
 
-        response = self._model.create_chat_completion(
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            repeat_penalty=repeat_penalty,
-        )
+        import concurrent.futures
+        # Failsafe timeout: ~5 tokens/sec worst case + 5s buffer. Cap at 45 seconds.
+        timeout_secs = min(max_tokens / 5.0 + 5.0, 45.0)
+
+        def _call_model():
+            return self._model.create_chat_completion(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                repeat_penalty=repeat_penalty,
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_call_model)
+            try:
+                response = future.result(timeout=timeout_secs)
+            except concurrent.futures.TimeoutError:
+                print(f"[LOCAL] Timeout Error: generate exceeded {timeout_secs}s", flush=True)
+                return "Unable to process."
 
         # Extract the assistant's reply
         content = response["choices"][0]["message"]["content"]
@@ -153,13 +166,25 @@ class LocalEngine:
         self._load_model(model_type)
         assert self._model is not None
 
-        response = self._model.create_chat_completion(
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            repeat_penalty=repeat_penalty,
-        )
+        import concurrent.futures
+        timeout_secs = min(max_tokens / 5.0 + 5.0, 45.0)
+
+        def _call_model():
+            return self._model.create_chat_completion(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                repeat_penalty=repeat_penalty,
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_call_model)
+            try:
+                response = future.result(timeout=timeout_secs)
+            except concurrent.futures.TimeoutError:
+                print(f"[LOCAL] Timeout Error: generate_with_confidence exceeded {timeout_secs}s", flush=True)
+                return "Unable to process.", -10.0
 
         content = response["choices"][0]["message"]["content"]
         text = content.strip() if content else ""

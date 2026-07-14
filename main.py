@@ -55,12 +55,12 @@ RETRY_DEADLINE_SECS = 330           # Limit for retries
 # Max-token budgets per category (tuned for conciseness)
 # ---------------------------------------------------------------------------
 _MAX_TOKENS: Dict[TaskCategory, int] = {
-    TaskCategory.SENTIMENT: 64,
-    TaskCategory.NER: 256,
-    TaskCategory.SUMMARIZATION: 300,
-    TaskCategory.FACTUAL: 256,
+    TaskCategory.SENTIMENT: 32,
+    TaskCategory.NER: 64,
+    TaskCategory.FACTUAL: 64,
+    TaskCategory.SUMMARIZATION: 128,
+    TaskCategory.LOGIC: 128,
     TaskCategory.MATH: 384,
-    TaskCategory.LOGIC: 512,
     TaskCategory.DEBUGGING: 768,
     TaskCategory.CODE_GEN: 768,
 }
