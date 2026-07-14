@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional
 
 from classifier import TaskCategory, ComplexityTier, classify, get_complexity
 from critic import validate_output
+from deterministic_solver import solve_deterministic
 from extractor import extract_answer
 from local_engine import LocalEngine
 from prompts import build_messages
@@ -260,6 +261,17 @@ def main() -> None:
             category.value, task.prompt, use_few_shot=use_few_shot
         )
 
+        # --- DETERMINISTIC FAST-PASS ---
+        fast_answer = solve_deterministic(task.prompt)
+        if fast_answer is not None:
+            results.append(TaskOutput(task_id=task.task_id, answer=fast_answer))
+            print(
+                f"[FAST] {idx + 1}/{active_total} | {category.value:<14} | "
+                f"DETERMINISTIC | {elapsed():.1f}s",
+                flush=True,
+            )
+            continue
+
         try:
             if tier == RoutingTier.REMOTE_PREFERRED:
                 should_esc = True
@@ -341,7 +353,7 @@ def main() -> None:
 
             if should_esc and tier != RoutingTier.LOCAL_ONLY:
                 print(
-                    f"[ROUTE] Task {task.task_id} ({category.value}) → "
+                    f"[ROUTE] Task {task.task_id} ({category.value}) -> "
                     f"ESCALATE ({esc_reason})",
                     flush=True,
                 )
@@ -384,6 +396,13 @@ def main() -> None:
     # 7. Process escalation queue (confidence-based remote calls)
     # ------------------------------------------------------------------
     if escalation_queue:
+        if elapsed() > 540:
+            print("[TIMEOUT] 9 minutes exceeded. Skipping remote escalation to exit safely.", flush=True)
+            for eq in escalation_queue:
+                results.append(TaskOutput(task_id=eq["task_id"], answer="Unable to process."))
+            escalation_queue.clear()
+            
+    if escalation_queue:
         print(
             f"[ESCALATE] Sending {len(escalation_queue)} tasks to remote API...",
             flush=True,
@@ -420,7 +439,7 @@ def main() -> None:
                         else:
                             # Last resort: run DeepSeek locally right now
                             # BUT ONLY if we aren't in a panic state or out of time!
-                            if force_exit or elapsed() > RETRY_DEADLINE_SECS:
+                            if elapsed() > 540 or elapsed() > RETRY_DEADLINE_SECS:
                                 print(f"[FALLBACK] Task {r['task_id']} — SKIPPING local emergency due to deadline or panic.", flush=True)
                                 answer = "Unable to process."
                             else:
@@ -496,6 +515,15 @@ def main() -> None:
     # ------------------------------------------------------------------
     # 8. Emergency remote escalation (panic timer or deferred/skipped tasks)
     # ------------------------------------------------------------------
+    if pending_remote:
+        if elapsed() > 540:
+            print("[TIMEOUT] 9 minutes exceeded. Skipping panic batch to exit safely.", flush=True)
+            existing_ids = {r.task_id for r in results}
+            for pt in pending_remote:
+                if pt["task_id"] not in existing_ids:
+                    results.append(TaskOutput(task_id=pt["task_id"], answer="Unable to process."))
+            pending_remote.clear()
+            
     if pending_remote:
         print(
             f"[REMOTE] Escalating {len(pending_remote)} tasks to Fireworks API...",
